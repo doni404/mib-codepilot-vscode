@@ -12,3 +12,6 @@ yarn-error.log*
 out/
 dist/
 .DS_Store
+
+# Environment variables
+.env
