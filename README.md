@@ -1,80 +1,90 @@
-# MIB-CodePilot for VS Code
+# MIB CodePilot for VS Code
 
-![MIB-CodePilot Logo Placeholder](link-to-your-logo-or-badge-here) # Optional: Add a logo or badge later
+Your intelligent coding assistant, MIB CodePilot, integrated directly into Visual Studio Code. Supercharge your workflow with AI-powered chat, code suggestions, and more.
 
-Your flexible AI coding companion directly within Visual Studio Code. MIB-CodePilot provides intelligent code suggestions, completions, and assistance, powered by your choice of leading AI models.
+![MIB CodePilot Showcase](./assets/mib-codepilot-showcase.png)
 
 ## Features
 
--   **Pluggable AI Models:** Easily switch between different AI backends like OpenAI, Claude, Gemini, and more.
--   **Intelligent Code Suggestions:** Get context-aware code completions as you type.
--   **Code Actions:** (Coming Soon) Implement quick fixes, refactorings, explanations, and other AI-driven actions.
--   **Customizable:** Configure your preferred model and API keys via VS Code settings.
+*   **AI-Powered Chat:** Engage in natural language conversations with an AI to ask questions, get explanations, and brainstorm ideas.
+*   **Contextual Code Assistance:** Send selected text from your editor directly to the chat for analysis or modification.
+*   **Chat History:**
+    *   View and revisit previous conversations.
+    *   Clearly identify the currently active chat.
+    *   Delete unwanted chat sessions.
+*   **Dynamic Welcome Screen:** A vibrant and engaging welcome message with a typing animation.
+*   **Markdown Support:** Bot responses are rendered with markdown for better readability, including code blocks.
+*   **Configurable API Key:** Securely store and use your OpenAI API key via VS Code settings.
+*   **Intuitive UI:**
+    *   User and bot messages are clearly distinguished.
+    *   Full-width message separators for a clean look.
+    *   Auto-resizing input area for comfortable message composing.
 
-## Supported Models
+## Requirements
 
-Currently supports (or planning to support):
+*   An active OpenAI API key.
 
--   OpenAI (GPT-3.5, GPT-4, etc.)
--   Anthropic Claude (Claude 3, etc.)
--   Google Gemini (Gemini Pro, etc.)
--   *(Add others as you implement them)*
+## Extension Settings
 
-## Installation
+This extension contributes the following settings:
 
-1.  Open VS Code.
-2.  Go to the Extensions view (`Ctrl+Shift+X` or `Cmd+Shift+X`).
-3.  Search for "MIB-CodePilot" (Once published to the VS Code Marketplace).
-4.  Click "Install".
+*   `mib-codepilot-vscode.openai.apiKey`: Your OpenAI API key. This is required for the extension to communicate with the OpenAI API.
 
-**Alternatively, if installing from source:**
+You can configure this by going to VS Code Settings (File > Preferences > Settings or Code > Settings > Settings), searching for "MIB CodePilot", and entering your API key in the "Openai: Api Key" field.
 
-1.  Clone this repository: `git clone https://github.com/YourGitHubUsername/mib-codepilot-vscode.git`
-2.  Navigate into the cloned directory: `cd mib-codepilot-vscode`
-3.  Install dependencies: `npm install`
-4.  Open the project in VS Code: `code .`
-5.  Press `F5` to run the extension in a new Extension Development Host window.
+## Commands
 
-## Configuration
+*   `MIB CodePilot: New Chat` (Ctrl+Shift+P or Cmd+Shift+P, then type command): Starts a new chat session.
+*   `MIB CodePilot: View Chat History` (Ctrl+Shift+P or Cmd+Shift+P, then type command): Opens a list of your past conversations to load or delete.
+*   `MIB CodePilot: Send Selected Text to Chat` (Ctrl+Shift+P or Cmd+Shift+P, then type command, or via context menu): Sends the currently selected text in your active editor to the MIB CodePilot input field.
 
-After installing, you need to configure which AI model to use and provide your API key.
+## How to Use
 
-1.  Open VS Code Settings (`File > Preferences > Settings` or `Code > Preferences > Settings`).
-2.  Search for "MIB Code Assist" or "mibCodeAssist".
-3.  Configure the following settings:
-    *   **`mibCodeAssist.model`**: Select your preferred AI model from the dropdown (e.g., `openai`, `claude`, `gemini`).
-    *   **`mibCodeAssist.openaiApiKey`**: Enter your OpenAI API key if you selected OpenAI.
-    *   **`mibCodeAssist.claudeApiKey`**: Enter your Claude API key if you selected Claude.
-    *   **`mibCodeAssist.geminiApiKey`**: Enter your Gemini API key if you selected Gemini.
-    *   *(Add other model-specific settings here)*
+1.  **Install the Extension:** Find "MIB CodePilot" in the VS Code Marketplace and click install.
+2.  **Configure API Key:**
+    *   Open VS Code Settings.
+    *   Search for `MIB CodePilot OpenAI Api Key`.
+    *   Enter your OpenAI API key.
+3.  **Open MIB CodePilot:** Click on the MIB CodePilot icon in the Activity Bar (Sidebar).
+4.  **Start Chatting:**
+    *   Type your questions or prompts in the input area at the bottom of the MIB CodePilot panel.
+    *   Use the "New Chat" command or the "+" button in the panel's title bar to start fresh conversations.
+    *   Use the "View Chat History" command to manage and revisit old chats.
 
-**Important:** Keep your API keys secure and do not commit them to your repository!
+## Known Issues
 
-## Usage
+*   Currently, no known major issues. Please report any bugs or unexpected behavior on the GitHub Issues page *(Replace with your actual GitHub repo link)*.
 
-Once configured, MIB-CodePilot will automatically start providing code assistance based on the selected model.
+## Release Notes
 
--   **Code Completions:** As you type, suggestions from the AI model will appear. Press `Tab` (or your configured keybinding) to accept them.
--   **Code Actions:** (Coming Soon) Right-click on code or look for the lightbulb icon to see available AI-powered actions.
+### 0.1.0 (Initial Release - Example)
 
-*(You can add more specific usage examples or screenshots here as features are built)*
+*   Initial release of MIB CodePilot.
+*   Core chat functionality with OpenAI.
+*   Chat history management.
+*   Welcome screen and basic UI.
 
-## Contributing
-
-We welcome contributions! If you'd like to contribute, please see our CONTRIBUTING.md file (Create this file later).
-
-## License
-
-This project is licensed under the MIT License. See the LICENSE file for details.
-
-## Acknowledgements
-
--   Thanks to the VS Code team for the excellent extension API.
--   Thanks to OpenAI, Anthropic, Google, and other AI providers for their models.
--   *(Add any other relevant acknowledgements)*
+*(Keep this section updated with each new version you publish)*
 
 ---
 
-**Man In Base**
+## Development
 
-*(Optional: Add a link to your personal website or organization)*
+*(Optional: Add notes here if you want others to contribute or if you want to remember how to set up the dev environment)*
+
+1.  Clone the repository.
+2.  Run `npm install`.
+3.  Open in VS Code.
+4.  Press `F5` to launch the Extension Development Host.
+
+## Contributing
+
+Contributions, issues, and feature requests are welcome! Feel free to check the issues page *(Replace link)*.
+
+## License
+
+*(Specify your license here, e.g., MIT)*
+
+---
+
+**Enjoy coding with MIB CodePilot!**
