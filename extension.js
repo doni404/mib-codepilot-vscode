@@ -1,6 +1,6 @@
 const vscode = require('vscode');
-const axios = require('axios'); // Import axios
 const { v4: uuidv4 } = require('uuid'); // For generating unique IDs
+const { OpenAIService, GeminiService, DeepSeekService } = require('./llmService'); // Import new LLM services
 
 const CONVERSATIONS_KEY = 'mibCodePilot.conversations';
 const ACTIVE_CONV_ID_KEY = 'mibCodePilot.activeConversationId';
@@ -61,18 +61,56 @@ class MibCodePilotViewProvider {
     _view;
     _extensionUri;
     _context; // ExtensionContext for globalState
+    _configListenerDisposable; // To store the disposable for the config listener
 
     _conversations = [];
     _activeConversationId = null;
+    _openaiApiKey = ''; // Initialize
+    _geminiApiKey = ''; // Initialize
+    _deepseekApiKey = ''; // Initialize for DeepSeek
+    _openaiService;
+    _geminiService;
+    _deepseekService; // Initialize for DeepSeek
 
     constructor(extensionUri, extensionContext) {
         this._extensionUri = extensionUri;
         this._context = extensionContext;
+
+        // Load API keys initially
+        this._openaiApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.openai').get('apiKey');
+        this._geminiApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.gemini').get('apiKey');
+        this._deepseekApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.deepseek').get('apiKey');
+        this._initializeServices();
+
+        // Listen for configuration changes to update API keys
+        this._configListenerDisposable = vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('mib-codepilot-vscode.openai.apiKey')) {
+                this._openaiApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.openai').get('apiKey');
+                this._initializeServices(); // Re-initialize service with new key
+            }
+            if (e.affectsConfiguration('mib-codepilot-vscode.gemini.apiKey')) {
+                this._geminiApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.gemini').get('apiKey');
+                this._initializeServices(); // Re-initialize service with new key
+            }
+            if (e.affectsConfiguration('mib-codepilot-vscode.deepseek.apiKey')) {
+                this._deepseekApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.deepseek').get('apiKey');
+                this._initializeServices(); // Re-initialize service with new key
+            }
+        });
+
         this._loadState(); // Call _loadState to initialize or retrieve conversation data
     }
 
     _loadState() {
         this._conversations = this._context.globalState.get(CONVERSATIONS_KEY, []);
+        // Ensure messages are an array, correcting potential old state issues
+        this._conversations.forEach(conv => {
+            if (!Array.isArray(conv.messages)) {
+                console.warn(`Conversation ${conv.id} had invalid messages format, resetting.`);
+                conv.messages = [];
+            }
+        });
+
         this._activeConversationId = this._context.globalState.get(ACTIVE_CONV_ID_KEY);
 
         if (!this._activeConversationId && this._conversations.length > 0) {
@@ -93,6 +131,23 @@ class MibCodePilotViewProvider {
         this._saveState(); // Ensure state is consistent after loading/initialization
     }
 
+    _initializeServices() {
+        if (this._openaiApiKey) {
+            this._openaiService = new OpenAIService(this._openaiApiKey);
+        } else {
+            this._openaiService = null; // Or handle as an error state
+        }
+        if (this._geminiApiKey) {
+            this._geminiService = new GeminiService(this._geminiApiKey);
+        } else {
+            this._geminiService = null;
+        }
+        if (this._deepseekApiKey) {
+            this._deepseekService = new DeepSeekService(this._deepseekApiKey);
+        } else {
+            this._deepseekService = null;
+        }
+    }
     _saveState() {
         this._context.globalState.update(CONVERSATIONS_KEY, this._conversations);
         this._context.globalState.update(ACTIVE_CONV_ID_KEY, this._activeConversationId);
@@ -107,6 +162,7 @@ class MibCodePilotViewProvider {
             messages: [], // Start with an empty messages array
             createdAt: now,
             lastActivity: now,
+            lastModelUsed: null // Initialize new property
         };
         this._conversations.unshift(newConversation); // Add to the beginning for easy access to newest
         if (setActive) {
@@ -119,6 +175,11 @@ class MibCodePilotViewProvider {
     _getActiveConversation() {
         if (!this._activeConversationId) return null;
         return this._conversations.find(c => c.id === this._activeConversationId);
+    }
+
+    _getConversationById(conversationId) {
+        if (!conversationId) return null;
+        return this._conversations.find(c => c.id === conversationId);
     }
 
     _addMessageToActiveConversation(role, content) {
@@ -222,6 +283,16 @@ class MibCodePilotViewProvider {
                     ? c.messages[0].content.substring(0, 40) + (c.messages[0].content.length > 40 ? '...' : '')
                     : c.title); // Fallback to original title if no user messages
             
+            // Helper map for display names
+            const modelDisplayNames = {
+                "openai_gpt-3.5-turbo": "GPT-3.5T",
+                "openai_gpt-4o": "GPT-4o",
+                "gemini_1.5_flash": "Gemini 1.5F",
+                "deepseek_chat": "DeepSeek-V3 (Chat)",
+                "deepseek_reasoner": "DeepSeek-R1 (Reasoner)"
+                // Add more mappings as you add models
+            };
+
             const isCurrentChat = c.id === this._activeConversationId;
 
             const lastUpdated = new Date(c.lastActivity || c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -229,9 +300,16 @@ class MibCodePilotViewProvider {
             const lastActivityDate = new Date(c.lastActivity || c.createdAt).toLocaleDateString();
             const dateString = (lastActivityDate === today) ? `today at ${lastUpdated}` : `on ${lastActivityDate} at ${lastUpdated}`;
 
+            let modelUsedDisplay = '';
+            if (c.lastModelUsed && modelDisplayNames[c.lastModelUsed]) {
+                modelUsedDisplay = ` (Model: ${modelDisplayNames[c.lastModelUsed]})`;
+            } else if (c.lastModelUsed) { // Fallback if not in map, show raw value
+                modelUsedDisplay = ` (Model: ${c.lastModelUsed.replace(/_/g, ' ').replace('gpt', 'GPT')})`; // Basic formatting
+            }
+
             return {
                 label: `${isCurrentChat ? '✅ Current: ' : ''}${titlePreview}`,
-                description: `Updated ${dateString} (${c.messages.length} messages)`,
+                description: `Updated ${dateString} (${c.messages.length} messages)${modelUsedDisplay}`,
                 id: c.id,
                 buttons: [ // Add button for deletion
                     {
@@ -288,6 +366,13 @@ class MibCodePilotViewProvider {
         }
     }
 
+    dispose() {
+        // Clean up disposables
+        if (this._configListenerDisposable) {
+            this._configListenerDisposable.dispose();
+        }
+    }
+
     resolveWebviewView(webviewView, context, token) {
         this._view = webviewView;
 
@@ -305,77 +390,16 @@ class MibCodePilotViewProvider {
             message => {
                 switch (message.command) {
                     case 'sendMessage':
-                        // User sent a message from the webview
                         const userMessage = message.text;
-                        this._addMessageToActiveConversation('user', userMessage);
-                        // vscode.window.showInformationMessage(`Sending to OpenAI: ${userMessage}`); // Optional: for debugging
+                        const selectedModel = message.selectedModel; // New: get selected model
+                        const activeConversation = this._getActiveConversation();
 
-                        // Get the conversation state *after* adding the user message
-                        const activeConversationAfterAdd = this._getActiveConversation();
-                        let conversationHistoryForAPI = [];
-                        if (activeConversationAfterAdd && activeConversationAfterAdd.messages) {
-                            conversationHistoryForAPI = activeConversationAfterAdd.messages
-                                .map(msg => ({ role: msg.role, content: msg.content }))
-                                .map(msg => {
-                                    // Map internal 'bot' role to OpenAI's 'assistant' role
-                                    const apiRole = msg.role === 'bot' ? 'assistant' : msg.role;
-                                    return { role: apiRole, content: msg.content };
-                                });
+                        if (activeConversation) {
+                            this._addMessageToActiveConversation('user', userMessage);
+                            this._handleLlmRequest(userMessage, activeConversation.id, selectedModel);
+                        } else {
+                            vscode.window.showErrorMessage("No active conversation. Please start a new chat.");
                         }
-
-                        // --- OpenAI API Integration ---
-                        // Read API Key from VS Code configuration
-                        const configuration = vscode.workspace.getConfiguration('mib-codepilot-vscode.openai');
-                        const OPENAI_API_KEY = configuration.get('apiKey');
-
-                        if (!OPENAI_API_KEY) {
-                            const apiKeyWarning = "OpenAI API key not configured. Please set it in VS Code settings under 'MIB CodePilot > OpenAI: Api Key'.";
-                            this._view.webview.postMessage({
-                                command: 'receiveMessage',
-                                text: apiKeyWarning
-                            });
-                            this._addMessageToActiveConversation('bot', apiKeyWarning); // Save warning to chat
-                            vscode.window.showErrorMessage(apiKeyWarning, "Open Settings").then(selection => {
-                                if (selection === "Open Settings") {
-                                    vscode.commands.executeCommand('workbench.action.openSettings', 'mib-codepilot-vscode.openai.apiKey');
-                                }
-                            });
-                            return;
-                        }
-
-                        const openaiEndpoint = 'https://api.openai.com/v1/chat/completions';
-
-                        axios.post(openaiEndpoint, {
-                            model: "gpt-3.5-turbo", // You can change to other models like "gpt-4" if you have access
-                            messages: conversationHistoryForAPI // Send conversation history with roles mapped for API
-                        }, {
-                            headers: {
-                                'Authorization': `Bearer ${OPENAI_API_KEY}`,
-                                'Content-Type': 'application/json'
-                            }
-                        })
-                        .then(response => {
-                            if (response.data.choices && response.data.choices.length > 0 && response.data.choices[0].message) {
-                                const reply = response.data.choices[0].message.content;
-                                this._addMessageToActiveConversation('bot', reply.trim());
-                                this._view.webview.postMessage({
-                                    command: 'receiveMessage',
-                                    text: reply.trim()
-                                });
-                            } else {
-                                throw new Error("Invalid response structure from OpenAI.");
-                            }
-                        })
-                        .catch(error => {
-                            console.error("Error calling OpenAI:", error.response ? error.response.data : error.message);
-                            let errorMessage = "Error fetching reply from OpenAI.";
-                            if (error.response && error.response.data && error.response.data.error && error.response.data.error.message) {
-                                errorMessage += ` Details: ${error.response.data.error.message}`;
-                            }
-                            this._addMessageToActiveConversation('bot', errorMessage); // Save error to chat
-                            this._view.webview.postMessage({ command: 'receiveMessage', text: errorMessage });
-                            vscode.window.showErrorMessage(errorMessage);
-                        });
                         return;
                     case 'requestInitialLoad': // Webview requests current conversation on load
                         this._sendActiveConversationToWebview();
@@ -390,6 +414,113 @@ class MibCodePilotViewProvider {
                                   // The `vscode.Disposable` returned by `onDidReceiveMessage` should be pushed to `context.subscriptions` if we want to clean it up on deactivation.
                                   // For simplicity here, we'll rely on the webviewView disposal.
         );
+    }
+
+    async _handleLlmRequest(text, conversationId, selectedModel) {
+        const activeConversation = this._getConversationById(conversationId);
+        if (!activeConversation) {
+            vscode.window.showErrorMessage('Error: Could not find active conversation for LLM request.');
+            return;
+        }
+
+        // Store the model selected for this request on the conversation
+        activeConversation.lastModelUsed = selectedModel;
+        this._saveState(); // Save this update
+
+        // Map dropdown values to actual model names and service types
+        let serviceToUse;
+        let modelNameToCall;
+        if (selectedModel === "gemini_1.5_flash") { // Updated to only check for gemini_1.5_flash
+            console.log(`Gemini model selected: ${selectedModel}. Using Gemini API Key.`);
+            if (!this._geminiApiKey) {
+                const apiKeyWarning = "Google Gemini API key not configured. Please set it in VS Code settings under 'MIB CodePilot > Gemini: Api Key'.";
+                this._view.webview.postMessage({ command: 'receiveMessage', text: apiKeyWarning });
+                this._addMessageToActiveConversation('bot', apiKeyWarning);
+                vscode.window.showErrorMessage(apiKeyWarning, "Open Settings").then(selection => {
+                    if (selection === "Open Settings") {
+                        vscode.commands.executeCommand('workbench.action.openSettings', 'mib-codepilot-vscode.gemini.apiKey');
+                    }
+                });
+                return;
+            }
+            if (!this._geminiService) {
+                vscode.window.showErrorMessage("Gemini service not initialized. Check API key."); return;
+            }
+            serviceToUse = this._geminiService;
+            modelNameToCall = "gemini-1.5-flash-latest"; // Directly use the latest flash model
+
+        } else if (selectedModel.startsWith("deepseek_")) { // Check if it's any DeepSeek model
+            console.log(`DeepSeek Coder model selected: ${selectedModel}. Using DeepSeek API Key.`);
+            if (!this._deepseekApiKey) {
+                const apiKeyWarning = "DeepSeek API key not configured. Please set it in VS Code settings under 'MIB CodePilot > Deepseek: Api Key'.";
+                this._view.webview.postMessage({ command: 'receiveMessage', text: apiKeyWarning });
+                this._addMessageToActiveConversation('bot', apiKeyWarning);
+                vscode.window.showErrorMessage(apiKeyWarning, "Open Settings").then(selection => {
+                    if (selection === "Open Settings") {
+                        vscode.commands.executeCommand('workbench.action.openSettings', 'mib-codepilot-vscode.deepseek.apiKey');
+                    }
+                });
+                return;
+            }
+            if (!this._deepseekService) { vscode.window.showErrorMessage("DeepSeek service not initialized. Check API key."); return; }
+            serviceToUse = this._deepseekService;
+
+            // Map the selected dropdown value to the actual DeepSeek API model name
+            // !!! IMPORTANT: Verify these API model names from DeepSeek's documentation !!!
+            switch (selectedModel) {
+                case "deepseek_reasoner":
+                    modelNameToCall = "deepseek-reasoner"; // Or the specific API identifier
+                    break;
+                case "deepseek_chat":
+                default:
+                    modelNameToCall = "deepseek-chat"; // Or the specific API identifier
+                    break;
+            } // Removed the code-davinci-002 check
+        } else if (selectedModel === "openai_gpt-4o" || selectedModel === "openai_gpt-3.5-turbo") { // Condition simplified
+            console.log(`OpenAI model selected: ${selectedModel}. Using OpenAI API Key.`);
+            if (!this._openaiApiKey) {
+                const apiKeyWarning = "OpenAI API key not configured. Please set it in VS Code settings under 'MIB CodePilot > OpenAI: Api Key'.";
+                this._view.webview.postMessage({ command: 'receiveMessage', text: apiKeyWarning });
+                this._addMessageToActiveConversation('bot', apiKeyWarning);
+                vscode.window.showErrorMessage(apiKeyWarning, "Open Settings").then(selection => {
+                    if (selection === "Open Settings") {
+                        vscode.commands.executeCommand('workbench.action.openSettings', 'mib-codepilot-vscode.openai.apiKey');
+                    }
+                });
+                return;
+            }
+            if (!this._openaiService) {
+                vscode.window.showErrorMessage("OpenAI service not initialized. Check API key."); return;
+            }
+            serviceToUse = this._openaiService;
+            // Map selectedModel to actual API model name
+            if (selectedModel === "openai_gpt-4o") {
+                modelNameToCall = "gpt-4o";
+            } else { // For "openai_gpt-3.5-turbo"
+                modelNameToCall = "gpt-3.5-turbo";
+            }
+
+        } else {
+            vscode.window.showErrorMessage(`Unknown model selected: ${selectedModel}`);
+            this._addMessageToActiveConversation('bot', `Error: Unknown model selected - ${selectedModel}`);
+            this._view.webview.postMessage({ command: 'receiveMessage', text: `Error: Unknown model selected - ${selectedModel}` });
+            return;
+        }
+
+        // Prepare messages. The services will handle their specific formatting.
+        // We pass the raw internal message history.
+        const conversationHistory = activeConversation.messages;
+
+        try {
+            const reply = await serviceToUse.generateResponse(modelNameToCall, conversationHistory);
+            this._addMessageToActiveConversation('bot', reply);
+            this._view.webview.postMessage({ command: 'receiveMessage', text: reply });
+        } catch (error) {
+            console.error(`Error calling ${selectedModel} service:`, error.message);
+            this._addMessageToActiveConversation('bot', error.message);
+            this._view.webview.postMessage({ command: 'receiveMessage', text: error.message });
+            vscode.window.showErrorMessage(error.message);
+        }
     }
 
     _getHtmlForWebview(webview) {
@@ -557,9 +688,24 @@ class MibCodePilotViewProvider {
                     .bot .message-content :not(pre) > code { background-color: var(--vscode-textSeparator-foreground, #555); padding: 0.2em 0.4em; border-radius: 3px; color: var(--vscode-editor-foreground); }
 
                     #input-area { display: flex; padding: 10px 15px; background-color: var(--vscode-editor-background, #1e1e1e); border-top: 1px solid var(--vscode-editorWidget-border, #454545); align-items: flex-end; /* Align items to bottom for textarea growth */ }
-                    #message-input { flex-grow: 1; padding: 10px; border: 1px solid var(--vscode-input-border, #3c3c3c); border-radius: 6px; background-color: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-family: inherit; font-size: 1em; line-height: 1.4; resize: none; /* Disable manual resize */ overflow-y: auto; max-height: 150px; /* Max height before scroll */ min-height: 24px; /* Approx 1 line */ box-sizing: border-box; }
+                    /* Wrapper for model selector and text input area */
+                    #input-controls-wrapper { display: flex; flex-direction: column; flex-grow: 1; }
+                    #model-selector-container { margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+                    #llm-model-select {
+                        padding: 5px 8px;
+                        border-radius: 4px;
+                        background-color: var(--vscode-input-background, #3c3c3c);
+                        color: var(--vscode-input-foreground, #cccccc);
+                        border: 1px solid var(--vscode-input-border, #3c3c3c);
+                        font-family: inherit;
+                        font-size: 0.9em;
+                    }
+                    /* Holds textarea and send button */
+                    #text-input-area { display: flex; align-items: flex-end; width: 100%; }
+                    #message-input { flex-grow: 1; padding: 10px; border: 1px solid var(--vscode-input-border, #3c3c3c); border-radius: 6px; background-color: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-family: inherit; font-size: 1em; line-height: 1.4; resize: none; overflow-y: auto; max-height: 150px; min-height: 24px; box-sizing: border-box; }
                     #message-input:focus { border-color: var(--vscode-focusBorder, #007fd4); outline: none; }
-                    #send-button { background-color: var(--vscode-button-background, #0e639c); color: var(--vscode-button-foreground, white); border: none; border-radius: 6px; padding: 0; width: 40px; height: 40px; /* Fixed size for icon */ margin-left: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s ease; }
+                    /* Adjusted send button to be part of text-input-area */
+                    #send-button { background-color: var(--vscode-button-background, #0e639c); color: var(--vscode-button-foreground, white); border: none; border-radius: 6px; padding: 0; width: 40px; height: 40px; margin-left: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s ease; flex-shrink: 0; /* Prevent button from shrinking */ }
                     #send-button:hover { background-color: var(--vscode-button-hoverBackground, #1177bb); }
                     #send-button svg { width: 20px; height: 20px; fill: currentColor; }
                 </style>
@@ -573,10 +719,24 @@ class MibCodePilotViewProvider {
                     <!-- Messages will appear here -->
                 </div>
                 <div id="input-area">
-                    <textarea id="message-input" placeholder="Ask MIB CodePilot..." rows="1"></textarea>
-                    <button id="send-button" title="Send Message">
-                        <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
-                    </button>
+                    <div id="input-controls-wrapper">
+                        <div id="model-selector-container">
+                            <label for="llm-model-select" style="font-size: 0.9em; color: var(--vscode-descriptionForeground);">Model:</label>
+                            <select name="llm-model" id="llm-model-select">
+                                <option value="openai_gpt-3.5-turbo">GPT-3.5 Turbo (OpenAI - Paid)</option>
+                                <option value="openai_gpt-4o">GPT-4o (OpenAI - Paid)</option>
+                                <option value="gemini_1.5_flash">Gemini 1.5 Flash (Google - Free Tier)</option>
+                                <option value="deepseek_chat">DeepSeek-V3 (DeepSeek - Chat)</option>
+                                <option value="deepseek_reasoner">DeepSeek-R1 (DeepSeek - Reasoner)</option>
+                            </select>
+                        </div>
+                        <div id="text-input-area">
+                            <textarea id="message-input" placeholder="Ask MIB CodePilot..." rows="1"></textarea>
+                            <button id="send-button" title="Send Message">
+                                <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
 				<script nonce="${nonce}">
@@ -585,6 +745,7 @@ class MibCodePilotViewProvider {
                     const welcomeMessageContainer = document.getElementById('welcome-message');
                     const md = window.markdownit(); // Initialize markdown-it
                     const welcomeSubtitleElement = document.getElementById('welcome-subtitle');
+                    const llmModelSelect = document.getElementById('llm-model-select'); // Get model selector
                     const fullSubtitleText = "Ready to supercharge your coding workflow? Ask me anything or let's explore your code together!";
                     let subtitleTyped = false; // Flag to ensure animation runs only once
 
@@ -622,13 +783,16 @@ class MibCodePilotViewProvider {
                     function sendMessage() {
                         const text = messageInput.value;
                         if (text.trim() === '') return;
+                        const selectedModel = llmModelSelect.value; // Get selected model
+
                         welcomeMessageContainer.style.display = 'none'; // Hide welcome message
                         // Display user message immediately
                         appendMessage({ role: 'user', content: text });
 
                         vscode.postMessage({
                             command: 'sendMessage',
-                            text: text
+                            text: text,
+                            selectedModel: selectedModel // Send selected model
                         });
                         messageInput.value = '';
                         messageInput.style.height = 'auto'; // Reset height after sending
@@ -755,7 +919,11 @@ function getNonce() {
     return text;
 }
 
-function deactivate() {}
+function deactivate() {
+    // If the provider was stored globally or needs explicit cleanup, do it here.
+    // For now, assuming VS Code handles disposal of registered providers.
+    // If MibCodePilotViewProvider had disposables, they should be cleaned up.
+}
 
 module.exports = {
     activate,
