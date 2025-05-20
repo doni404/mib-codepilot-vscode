@@ -12,7 +12,7 @@ Your intelligent and versatile coding assistant, MIB CodePilot, integrated direc
     *   **Google:** Gemini 1.5 Flash
     *   **DeepSeek:** DeepSeek-V3 (Chat), DeepSeek-R1 (Reasoner)
 *   **Model Selection UI:** Easily switch between configured LLMs using a dropdown menu in the chat input area.
-    <img src="./assets/mib-codepilot-llm-models.png" alt="MIB CodePilot LLM Models Dropdown" width="450"/>
+    ![MIB CodePilot LLM Models Dropdown](./assets/mib-codepilot-llm-models.png)
     *(Showcasing the available LLM options)*
 *   **AI-Powered Chat:** Engage in natural language conversations with your chosen AI to ask questions, get explanations, and brainstorm ideas.
 *   **Contextual Code Assistance:** Send selected text from your editor directly to the chat for analysis or modification.
