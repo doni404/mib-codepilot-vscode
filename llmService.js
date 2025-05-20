@@ -97,7 +97,57 @@ class GeminiService {
     }
 }
 
+class DeepSeekService {
+    constructor(apiKey) {
+        if (!apiKey) {
+            throw new Error("DeepSeek API key is required.");
+        }
+        this.apiKey = apiKey;
+        // !!! IMPORTANT: Verify this endpoint from DeepSeek's official API documentation !!!
+        this.endpoint = 'https://api.deepseek.com/v1/chat/completions';
+    }
+
+    async generateResponse(modelName, messages) {
+        // DeepSeek Coder API likely expects a format similar to OpenAI's chat completions.
+        // Consult DeepSeek API documentation for exact message formatting and supported roles.
+        const formattedMessages = messages.map(msg => ({
+            role: msg.role === 'bot' ? 'assistant' : msg.role, // Map 'bot' to 'assistant'
+            content: msg.content
+        }));
+
+        try {
+            const response = await axios.post(this.endpoint, {
+                model: modelName, // e.g., "deepseek-coder" - VERIFY THIS from DeepSeek docs
+                messages: formattedMessages,
+                // stream: false, // Ensure non-streaming for simple response
+                temperature: 0, // Based on the DeepSeek API documentation, adjust as needed
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            // !!! IMPORTANT: Adjust based on DeepSeek's actual response structure !!!
+            if (response.data.choices && response.data.choices.length > 0 && response.data.choices[0].message) {
+                return response.data.choices[0].message.content.trim();
+            } else {
+                console.error("DeepSeek Response Data:", response.data);
+                throw new Error("Invalid response structure from DeepSeek.");
+            }
+        } catch (error) {
+            console.error("Error calling DeepSeek Service:", error.response ? JSON.stringify(error.response.data, null, 2) : error.message);
+            let errorMessage = "Error fetching reply from DeepSeek.";
+            if (error.response && error.response.data && error.response.data.error && error.response.data.error.message) {
+                errorMessage += ` Details: ${error.response.data.error.message}`;
+            }
+            throw new Error(errorMessage);
+        }
+    }
+}
+
 module.exports = {
     OpenAIService,
-    GeminiService
+    GeminiService,
+    DeepSeekService
 };

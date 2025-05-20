@@ -1,6 +1,6 @@
 const vscode = require('vscode');
 const { v4: uuidv4 } = require('uuid'); // For generating unique IDs
-const { OpenAIService, GeminiService } = require('./llmService'); // Import new LLM services
+const { OpenAIService, GeminiService, DeepSeekService } = require('./llmService'); // Import new LLM services
 
 const CONVERSATIONS_KEY = 'mibCodePilot.conversations';
 const ACTIVE_CONV_ID_KEY = 'mibCodePilot.activeConversationId';
@@ -67,8 +67,10 @@ class MibCodePilotViewProvider {
     _activeConversationId = null;
     _openaiApiKey = ''; // Initialize
     _geminiApiKey = ''; // Initialize
+    _deepseekApiKey = ''; // Initialize for DeepSeek
     _openaiService;
     _geminiService;
+    _deepseekService; // Initialize for DeepSeek
 
     constructor(extensionUri, extensionContext) {
         this._extensionUri = extensionUri;
@@ -77,6 +79,7 @@ class MibCodePilotViewProvider {
         // Load API keys initially
         this._openaiApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.openai').get('apiKey');
         this._geminiApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.gemini').get('apiKey');
+        this._deepseekApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.deepseek').get('apiKey');
         this._initializeServices();
 
         // Listen for configuration changes to update API keys
@@ -87,6 +90,10 @@ class MibCodePilotViewProvider {
             }
             if (e.affectsConfiguration('mib-codepilot-vscode.gemini.apiKey')) {
                 this._geminiApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.gemini').get('apiKey');
+                this._initializeServices(); // Re-initialize service with new key
+            }
+            if (e.affectsConfiguration('mib-codepilot-vscode.deepseek.apiKey')) {
+                this._deepseekApiKey = vscode.workspace.getConfiguration('mib-codepilot-vscode.deepseek').get('apiKey');
                 this._initializeServices(); // Re-initialize service with new key
             }
         });
@@ -134,6 +141,11 @@ class MibCodePilotViewProvider {
             this._geminiService = new GeminiService(this._geminiApiKey);
         } else {
             this._geminiService = null;
+        }
+        if (this._deepseekApiKey) {
+            this._deepseekService = new DeepSeekService(this._deepseekApiKey);
+        } else {
+            this._deepseekService = null;
         }
     }
     _saveState() {
@@ -275,7 +287,9 @@ class MibCodePilotViewProvider {
             const modelDisplayNames = {
                 "openai_gpt-3.5-turbo": "GPT-3.5T",
                 "openai_gpt-4o": "GPT-4o",
-                "gemini_1.5_flash": "Gemini 1.5F"
+                "gemini_1.5_flash": "Gemini 1.5F",
+                "deepseek_chat": "DeepSeek-V3 (Chat)",
+                "deepseek_reasoner": "DeepSeek-R1 (Reasoner)"
                 // Add more mappings as you add models
             };
 
@@ -435,7 +449,34 @@ class MibCodePilotViewProvider {
             serviceToUse = this._geminiService;
             modelNameToCall = "gemini-1.5-flash-latest"; // Directly use the latest flash model
 
-        } else if (selectedModel === "openai_gpt-4o" || selectedModel === "openai_gpt-3.5-turbo") {
+        } else if (selectedModel.startsWith("deepseek_")) { // Check if it's any DeepSeek model
+            console.log(`DeepSeek Coder model selected: ${selectedModel}. Using DeepSeek API Key.`);
+            if (!this._deepseekApiKey) {
+                const apiKeyWarning = "DeepSeek API key not configured. Please set it in VS Code settings under 'MIB CodePilot > Deepseek: Api Key'.";
+                this._view.webview.postMessage({ command: 'receiveMessage', text: apiKeyWarning });
+                this._addMessageToActiveConversation('bot', apiKeyWarning);
+                vscode.window.showErrorMessage(apiKeyWarning, "Open Settings").then(selection => {
+                    if (selection === "Open Settings") {
+                        vscode.commands.executeCommand('workbench.action.openSettings', 'mib-codepilot-vscode.deepseek.apiKey');
+                    }
+                });
+                return;
+            }
+            if (!this._deepseekService) { vscode.window.showErrorMessage("DeepSeek service not initialized. Check API key."); return; }
+            serviceToUse = this._deepseekService;
+
+            // Map the selected dropdown value to the actual DeepSeek API model name
+            // !!! IMPORTANT: Verify these API model names from DeepSeek's documentation !!!
+            switch (selectedModel) {
+                case "deepseek_reasoner":
+                    modelNameToCall = "deepseek-reasoner"; // Or the specific API identifier
+                    break;
+                case "deepseek_chat":
+                default:
+                    modelNameToCall = "deepseek-chat"; // Or the specific API identifier
+                    break;
+            } // Removed the code-davinci-002 check
+        } else if (selectedModel === "openai_gpt-4o" || selectedModel === "openai_gpt-3.5-turbo") { // Condition simplified
             console.log(`OpenAI model selected: ${selectedModel}. Using OpenAI API Key.`);
             if (!this._openaiApiKey) {
                 const apiKeyWarning = "OpenAI API key not configured. Please set it in VS Code settings under 'MIB CodePilot > OpenAI: Api Key'.";
@@ -452,7 +493,13 @@ class MibCodePilotViewProvider {
                 vscode.window.showErrorMessage("OpenAI service not initialized. Check API key."); return;
             }
             serviceToUse = this._openaiService;
-            modelNameToCall = selectedModel === "openai_gpt-4o" ? "gpt-4o" : "gpt-3.5-turbo";
+            // Map selectedModel to actual API model name
+            if (selectedModel === "openai_gpt-4o") {
+                modelNameToCall = "gpt-4o";
+            } else { // For "openai_gpt-3.5-turbo"
+                modelNameToCall = "gpt-3.5-turbo";
+            }
+
         } else {
             vscode.window.showErrorMessage(`Unknown model selected: ${selectedModel}`);
             this._addMessageToActiveConversation('bot', `Error: Unknown model selected - ${selectedModel}`);
@@ -678,7 +725,9 @@ class MibCodePilotViewProvider {
                             <select name="llm-model" id="llm-model-select">
                                 <option value="openai_gpt-3.5-turbo">GPT-3.5 Turbo (OpenAI - Paid)</option>
                                 <option value="openai_gpt-4o">GPT-4o (OpenAI - Paid)</option>
-                                <option value="gemini_1.5_flash">Gemini 1.5 Flash (Google - Free Tier)</option> 
+                                <option value="gemini_1.5_flash">Gemini 1.5 Flash (Google - Free Tier)</option>
+                                <option value="deepseek_chat">DeepSeek-V3 (DeepSeek - Chat)</option>
+                                <option value="deepseek_reasoner">DeepSeek-R1 (DeepSeek - Reasoner)</option>
                             </select>
                         </div>
                         <div id="text-input-area">

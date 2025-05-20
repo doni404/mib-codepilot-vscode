@@ -81,6 +81,12 @@
           "default": "",
           "description": "Your Google AI Studio API Key for Gemini models used with MIB CodePilot.",
           "scope": "machine-overridable"
+        },
+        "mib-codepilot-vscode.deepseek.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your DeepSeek API Key for DeepSeek Coder models used with MIB CodePilot.",
+          "scope": "machine-overridable"
         }
       }
     }
