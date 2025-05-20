@@ -75,6 +75,12 @@
           "default": "",
           "description": "Your OpenAI API Key for MIB CodePilot. This key is required to make requests to the OpenAI API.",
           "scope": "machine-overridable"
+        },
+        "mib-codepilot-vscode.gemini.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your Google AI Studio API Key for Gemini models used with MIB CodePilot.",
+          "scope": "machine-overridable"
         }
       }
     }
@@ -94,6 +100,7 @@
     "eslint": "^9.25.1"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@vscode/codicons": "^0.0.35",
     "@vscode/webview-ui-toolkit": "^1.4.0",
     "axios": "^1.9.0",
